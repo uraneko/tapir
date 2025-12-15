@@ -105,16 +105,7 @@ impl Resource<Socket> for File {
         req: Request,
         resp: &mut Respond,
     ) -> Result<(), ErrorStatus> {
-        if let Some(range) = header_value(req.headers(), b"range") {
-            let Ok(_) = Range::new(range) else {
-                bad_request(resp);
-                return err_stt!(?400);
-            };
-
-            resp.headers_mut().extend(b"accept-ranges: bytes\n");
-        }
-
-        Ok(())
+        self.get(socket, req, resp).await
     }
 
     // fn post(&self, socket: &mut Socket, req: Request, buf: &mut Vec<u8>) {}

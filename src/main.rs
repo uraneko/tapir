@@ -1,4 +1,4 @@
-use pheasant::http::{ErrorStatus, Protocol, Respond, request::Request, status};
+use pheasant::http::{ErrorStatus, Method, Protocol, Respond, request::Request, status};
 use pheasant::services::{Server, bad_request, parse, read_stream, req_buf, resp_write_stream};
 use std::io::BufReader;
 
@@ -28,32 +28,33 @@ async fn main() -> Result<(), ErrorStatus> {
                 let mut reader = BufReader::new(&mut stream);
                 let Ok(req_buf) = req_buf(&mut reader) else {
                     bad_request(&mut resp);
-                    resp_write_stream(&resp, &mut stream)?;
+                    resp_write_stream(&resp, &mut stream, Method::Get)?;
                     continue;
                 };
                 let req = parse(req_buf);
                 let Ok(req) = req else {
                     bad_request(&mut resp);
-                    resp_write_stream(&resp, &mut stream)?;
+                    resp_write_stream(&resp, &mut stream, Method::Get)?;
                     continue;
                 };
                 print_req(&req);
+                let method = req.method();
 
                 // lookup should fetch whole service chains
                 let service = match lookup(&req, &mut resp) {
                     Ok(s) => s,
                     Err(_err) => {
                         bad_request(&mut resp);
-                        resp_write_stream(&resp, &mut stream)?;
+                        resp_write_stream(&resp, &mut stream, method)?;
                         continue;
                     }
                 };
                 _ = this.service(req, &mut resp, service).await;
                 println!(
                     "{}",
-                    str::from_utf8(&resp.to_bytes()).unwrap_or_else(|_| "resp err".into())
+                    str::from_utf8(&resp.to_bytes(method)).unwrap_or_else(|_| "resp err".into())
                 );
-                resp_write_stream(&resp, &mut stream)?;
+                resp_write_stream(&resp, &mut stream, method)?;
             }
 
             Ok(())

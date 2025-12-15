@@ -1,8 +1,25 @@
 use pheasant::http::{ErrorStatus, Respond, err_stt, header_value, request::Request};
 use pheasant::services::{
-    MessageBodyInfo, Range, Resource, Server, Service, bad_request, bind_socket, not_found,
+    MessageBodyInfo, Range, Resource, Server, Service, bad_request, bind_socket,
+    internal_server_error, not_found,
 };
 use std::io::Read;
+
+impl Service<Socket> for File {
+    async fn run(
+        &self,
+        socket: &mut Socket,
+        req: Request,
+        resp: &mut Respond,
+    ) -> Result<(), ErrorStatus> {
+        if let Err(_err) = Resource::run(self, socket, req, resp).await {
+            // normally, should match on err and return desired error status
+            internal_server_error(resp);
+        };
+
+        return Ok(());
+    }
+}
 
 pub struct Socket {
     pub(crate) socket: std::net::TcpListener,
@@ -54,7 +71,10 @@ impl Resource<Socket> for File {
         req: Request,
         resp: &mut Respond,
     ) -> Result<(), ErrorStatus> {
-        let mut file = std::fs::File::open(&self.0).map_err(|_| err_stt!(500))?;
+        let path = format!("{}/{}", socket.root, self.0);
+        println!("{}", path);
+        println!("{:?}", std::fs::File::open(&path));
+        let mut file = std::fs::File::open(path).map_err(|_| err_stt!(500))?;
 
         if let Some(range) = header_value(req.headers(), b"range") {
             let Ok(range) = Range::new(range) else {
@@ -73,6 +93,7 @@ impl Resource<Socket> for File {
             let n = file
                 .read_to_end(resp.body_mut())
                 .map_err(|_| err_stt!(500))?;
+            println!("-> {:?}", resp.body_ref());
             MessageBodyInfo::with_len(n)
                 .guess_mime(resp.body_ref())
                 .dump_headers(resp.headers_mut());
@@ -100,17 +121,6 @@ impl Resource<Socket> for File {
     }
 
     // fn post(&self, socket: &mut Socket, req: Request, buf: &mut Vec<u8>) {}
-}
-
-impl Service<Socket> for File {
-    async fn run(
-        &self,
-        socket: &mut Socket,
-        req: Request,
-        resp: &mut Respond,
-    ) -> Result<(), ErrorStatus> {
-        Resource::run(self, socket, req, resp).await
-    }
 }
 
 pub fn lookup(req: &Request, resp: &mut Respond) -> Result<File, ErrorStatus> {

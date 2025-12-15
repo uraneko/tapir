@@ -9,7 +9,7 @@ use services::{Socket, lookup};
 
 #[tokio::main]
 async fn main() -> Result<(), ErrorStatus> {
-    let mut root = String::from("~");
+    let root = std::env::var("HOME").unwrap_or_else(|_| "~".into());
 
     // let Ok(_) = std::io::stdin().read_line(&mut root) else {
     //     return Ok(());

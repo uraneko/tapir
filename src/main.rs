@@ -49,6 +49,10 @@ async fn main() -> Result<(), ErrorStatus> {
                     }
                 };
                 _ = this.service(req, &mut resp, service).await;
+                println!(
+                    "{}",
+                    str::from_utf8(&resp.to_bytes()).unwrap_or_else(|_| "resp err".into())
+                );
                 resp_write_stream(&resp, &mut stream)?;
             }
 

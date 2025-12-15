@@ -1,11 +1,12 @@
 use pheasant::http::{ErrorStatus, Respond, err_stt, header_value, request::Request, status};
 use pheasant::services::{
-    MessageBodyInfo, Range, Resource, Server, Service, bad_request, bind_socket,
-    internal_server_error, not_found,
+    MessageBodyInfo, Ranges, Resource, Server, Service, bad_request, bind_socket,
+    internal_server_error, not_found, support_ranges,
 };
+use std::fs::{File, OpenOptions};
 use std::io::Read;
 
-impl Service<Socket> for File {
+impl Service<Socket> for Path {
     async fn run(
         &self,
         socket: &mut Socket,
@@ -56,15 +57,25 @@ impl Server for Socket {
     }
 }
 
-pub struct File(String);
+pub struct Path(String);
 
-impl File {
+impl Path {
     fn new(req: &Request) -> Self {
         Self(req.path()[2..].join("/"))
     }
 }
 
-impl Resource<Socket> for File {
+fn open_file(path: &str, req: &Request, writable: &mut bool) -> Result<File, ErrorStatus> {
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    if let Some(true) = req.query().map(|q| q.param_eq("mode", "rw")) {
+        opts.write(true);
+        *writable = true;
+    }
+    opts.open(path).map_err(|_| err_stt!(500))
+}
+
+impl Resource<Socket> for Path {
     async fn get(
         &self,
         socket: &mut Socket,
@@ -72,31 +83,26 @@ impl Resource<Socket> for File {
         resp: &mut Respond,
     ) -> Result<(), ErrorStatus> {
         let path = format!("{}/{}", socket.root, self.0);
-        let mut file = std::fs::File::open(path).map_err(|_| err_stt!(500))?;
+        let mut writable = false;
+        let mut file = open_file(&path, &req, &mut writable)?;
         let len = file
             .metadata()
             .map(|m| m.len() as usize)
             .unwrap_or_else(|_| 0);
 
-        resp.headers_mut().extend(b"accept-ranges: bytes\n");
+        support_ranges(resp.headers_mut());
         if let Some(range_header) = header_value(req.headers(), b"range") {
-            let Ok(range) = Range::new(range_header) else {
+            let Ok(ranges) = Ranges::new(range_header, writable) else {
                 bad_request(resp);
                 return err_stt!(?400);
             };
-            resp.status(status!(206));
-            let n = range
+            ranges.meta(resp, len, range_header);
+            let n = ranges
                 .read(&mut file, resp.body_mut())
                 .map_err(|_| err_stt!(500))?;
             MessageBodyInfo::with_len(n)
                 .guess_mime(resp.body_ref())
                 .dump_headers(resp.headers_mut());
-            let content_range = format!(
-                "content-range: {}/{}\n",
-                str::from_utf8(range_header).unwrap(),
-                len
-            );
-            resp.headers_mut().extend(content_range.as_bytes());
         } else {
             let n = file
                 .read_to_end(resp.body_mut())
@@ -116,32 +122,29 @@ impl Resource<Socket> for File {
         resp: &mut Respond,
     ) -> Result<(), ErrorStatus> {
         let path = format!("{}/{}", socket.root, self.0);
-        let mut file = std::fs::File::open(path).map_err(|_| err_stt!(500))?;
+        let mut writable = false;
+        let mut file = open_file(&path, &req, &mut writable)?;
         let len = file
             .metadata()
             .map(|m| m.len() as usize)
             .unwrap_or_else(|_| 0);
 
-        resp.headers_mut().extend(b"accept-ranges: bytes\n");
+        support_ranges(resp.headers_mut());
         if let Some(range_header) = header_value(req.headers(), b"range") {
-            let Ok(range) = Range::new(range_header) else {
+            let Ok(ranges) = Ranges::new(range_header, writable) else {
                 bad_request(resp);
                 return err_stt!(?400);
             };
-            resp.status(status!(206));
-            let n = range
+            ranges.meta(resp, len, range_header);
+            let n = ranges
                 .read(&mut file, resp.body_mut())
                 .map_err(|_| err_stt!(500))?;
             MessageBodyInfo::with_len(n)
                 .guess_mime(resp.body_ref())
                 .dump_headers(resp.headers_mut());
-            let content_range = format!(
-                "content-range: {}/{}\n",
-                str::from_utf8(range_header).unwrap(),
-                len
-            );
-            resp.headers_mut().extend(content_range.as_bytes());
         } else {
+            // return only the content meta without doing an actual read
+            // much cheaper than a full file read on really large files (GB>>)
             MessageBodyInfo::with_len(len)
                 .force_mime(mime::APPLICATION_OCTET_STREAM)
                 .dump_headers(resp.headers_mut());
@@ -153,11 +156,11 @@ impl Resource<Socket> for File {
     // fn post(&self, socket: &mut Socket, req: Request, buf: &mut Vec<u8>) {}
 }
 
-pub fn lookup(req: &Request, resp: &mut Respond) -> Result<File, ErrorStatus> {
+pub fn lookup(req: &Request, resp: &mut Respond) -> Result<Path, ErrorStatus> {
     let path = req.path();
 
     if path.len() > 1 && path[..2] == ["", "file"] {
-        return Ok(File::new(&req));
+        return Ok(Path::new(&req));
     }
 
     not_found(resp);

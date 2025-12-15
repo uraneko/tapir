@@ -115,7 +115,39 @@ impl Resource<Socket> for File {
         req: Request,
         resp: &mut Respond,
     ) -> Result<(), ErrorStatus> {
-        self.get(socket, req, resp).await
+        let path = format!("{}/{}", socket.root, self.0);
+        let mut file = std::fs::File::open(path).map_err(|_| err_stt!(500))?;
+        let len = file
+            .metadata()
+            .map(|m| m.len() as usize)
+            .unwrap_or_else(|_| 0);
+
+        resp.headers_mut().extend(b"accept-ranges: bytes\n");
+        if let Some(range_header) = header_value(req.headers(), b"range") {
+            let Ok(range) = Range::new(range_header) else {
+                bad_request(resp);
+                return err_stt!(?400);
+            };
+            resp.status(status!(206));
+            let n = range
+                .read(&mut file, resp.body_mut())
+                .map_err(|_| err_stt!(500))?;
+            MessageBodyInfo::with_len(n)
+                .guess_mime(resp.body_ref())
+                .dump_headers(resp.headers_mut());
+            let content_range = format!(
+                "content-range: {}/{}\n",
+                str::from_utf8(range_header).unwrap(),
+                len
+            );
+            resp.headers_mut().extend(content_range.as_bytes());
+        } else {
+            MessageBodyInfo::with_len(len)
+                .force_mime(mime::APPLICATION_OCTET_STREAM)
+                .dump_headers(resp.headers_mut());
+        }
+
+        Ok(())
     }
 
     // fn post(&self, socket: &mut Socket, req: Request, buf: &mut Vec<u8>) {}

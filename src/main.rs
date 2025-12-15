@@ -72,6 +72,10 @@ fn print_resp(resp: &Respond) {
         "{}",
         str::from_utf8(resp.headers_ref()).unwrap_or_else(|_| "headers err".into())
     );
+    println!(
+        "{}",
+        str::from_utf8(resp.body_ref()).unwrap_or_else(|_| "body err".into())
+    );
     println!("***\n");
 }
 

@@ -72,8 +72,6 @@ impl Resource<Socket> for File {
         resp: &mut Respond,
     ) -> Result<(), ErrorStatus> {
         let path = format!("{}/{}", socket.root, self.0);
-        println!("{}", path);
-        println!("{:?}", std::fs::File::open(&path));
         let mut file = std::fs::File::open(path).map_err(|_| err_stt!(500))?;
 
         if let Some(range) = header_value(req.headers(), b"range") {
@@ -93,7 +91,6 @@ impl Resource<Socket> for File {
             let n = file
                 .read_to_end(resp.body_mut())
                 .map_err(|_| err_stt!(500))?;
-            println!("-> {:?}", resp.body_ref());
             MessageBodyInfo::with_len(n)
                 .guess_mime(resp.body_ref())
                 .dump_headers(resp.headers_mut());

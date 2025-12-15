@@ -1,7 +1,5 @@
-use pheasant::http::{ErrorStatus, Protocol, Respond, status};
-use pheasant::services::{
-    Server, bad_request, parse, read_stream, req_buf, resp_write_stream, write_stream,
-};
+use pheasant::http::{ErrorStatus, Protocol, Respond, request::Request, status};
+use pheasant::services::{Server, bad_request, parse, read_stream, req_buf, resp_write_stream};
 use std::io::BufReader;
 
 mod services;
@@ -24,6 +22,7 @@ async fn main() -> Result<(), ErrorStatus> {
         .event_loop(async |this| {
             // let mut buf: Vec<u8> = Vec::with_capacity(65536);
             let mut resp = Respond::new(Protocol::Http11, status!(200));
+            println!();
             while let Ok((mut stream, _)) = read_stream(&this.socket) {
                 resp.clear();
                 let mut reader = BufReader::new(&mut stream);
@@ -38,6 +37,7 @@ async fn main() -> Result<(), ErrorStatus> {
                     resp_write_stream(&resp, &mut stream)?;
                     continue;
                 };
+                print_req(&req);
 
                 // lookup should fetch whole service chains
                 let service = match lookup(&req, &mut resp) {
@@ -48,9 +48,7 @@ async fn main() -> Result<(), ErrorStatus> {
                         continue;
                     }
                 };
-                println!();
                 _ = this.service(req, &mut resp, service).await;
-                // println!("{}---", str::from_utf8(&resp.to_bytes()).unwrap());
                 resp_write_stream(&resp, &mut stream)?;
             }
 
@@ -59,4 +57,30 @@ async fn main() -> Result<(), ErrorStatus> {
         .await?;
 
     Ok(())
+}
+
+fn print_req(req: &Request) {
+    println!(
+        "{} - {} - {:?} - {}",
+        req.method(),
+        req.path_str(),
+        req.query(),
+        req.proto(),
+    );
+    req.headers()
+        .iter()
+        .inspect(|h| {
+            println!(
+                "{} -> {}",
+                str::from_utf8(h.field_ref()).unwrap_or_else(|_| "field err".into()),
+                str::from_utf8(h.value_ref()).unwrap_or_else(|_| "value err".into())
+            )
+        })
+        .count();
+    if let Some(body) = req.body() {
+        println!(
+            "{}",
+            str::from_utf8(body).unwrap_or_else(|_| "body err".into())
+        );
+    }
 }

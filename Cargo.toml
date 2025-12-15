@@ -1,0 +1,8 @@
+[package]
+name = "tapir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pheasant = { version = "0.1.0", path = "../pheasant" }
+tokio = { version = "1.48.0", features = ["full"] }

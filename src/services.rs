@@ -1,4 +1,4 @@
-use pheasant::http::{ErrorStatus, Respond, err_stt, header_value, request::Request};
+use pheasant::http::{ErrorStatus, Respond, err_stt, header_value, request::Request, status};
 use pheasant::services::{
     MessageBodyInfo, Range, Resource, Server, Service, bad_request, bind_socket,
     internal_server_error, not_found,
@@ -73,20 +73,30 @@ impl Resource<Socket> for File {
     ) -> Result<(), ErrorStatus> {
         let path = format!("{}/{}", socket.root, self.0);
         let mut file = std::fs::File::open(path).map_err(|_| err_stt!(500))?;
+        let len = file
+            .metadata()
+            .map(|m| m.len() as usize)
+            .unwrap_or_else(|_| 0);
 
-        if let Some(range) = header_value(req.headers(), b"range") {
-            let Ok(range) = Range::new(range) else {
+        resp.headers_mut().extend(b"accept-ranges: bytes\n");
+        if let Some(range_header) = header_value(req.headers(), b"range") {
+            let Ok(range) = Range::new(range_header) else {
                 bad_request(resp);
                 return err_stt!(?400);
             };
-
-            resp.headers_mut().extend(b"accept-ranges: bytes\n");
+            resp.status(status!(206));
             let n = range
                 .read(&mut file, resp.body_mut())
                 .map_err(|_| err_stt!(500))?;
             MessageBodyInfo::with_len(n)
                 .guess_mime(resp.body_ref())
                 .dump_headers(resp.headers_mut());
+            let content_range = format!(
+                "content-range: {}/{}\n",
+                str::from_utf8(range_header).unwrap(),
+                len
+            );
+            resp.headers_mut().extend(content_range.as_bytes());
         } else {
             let n = file
                 .read_to_end(resp.body_mut())

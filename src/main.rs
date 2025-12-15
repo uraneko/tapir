@@ -50,10 +50,7 @@ async fn main() -> Result<(), ErrorStatus> {
                     }
                 };
                 _ = this.service(req, &mut resp, service).await;
-                println!(
-                    "{}",
-                    str::from_utf8(&resp.to_bytes(method)).unwrap_or_else(|_| "resp err".into())
-                );
+                print_resp(&resp);
                 resp_write_stream(&resp, &mut stream, method)?;
             }
 
@@ -62,6 +59,20 @@ async fn main() -> Result<(), ErrorStatus> {
         .await?;
 
     Ok(())
+}
+
+fn print_resp(resp: &Respond) {
+    println!(
+        "{} {} {}",
+        resp.proto_cpy().as_str(),
+        resp.status_cpy().code(),
+        resp.status_cpy().text()
+    );
+    println!(
+        "{}",
+        str::from_utf8(resp.headers_ref()).unwrap_or_else(|_| "headers err".into())
+    );
+    println!("***\n");
 }
 
 fn print_req(req: &Request) {
@@ -88,4 +99,5 @@ fn print_req(req: &Request) {
             str::from_utf8(body).unwrap_or_else(|_| "body err".into())
         );
     }
+    println!("---");
 }
